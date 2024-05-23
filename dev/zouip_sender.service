@@ -1,0 +1,8 @@
+[Unit]
+Description=zouip
+
+[Service]
+ExecStart=/home/tonton/Taf/zouip/clipboard_receive.sh
+
+[Install]
+WantedBy=default.target
