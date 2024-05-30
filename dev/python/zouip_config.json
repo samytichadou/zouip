@@ -1,0 +1,13 @@
+{
+    "receiver": {
+        "signal_port": 12345,
+        "file_port": 54321,
+        "passphrase": "azerty",
+        "receive_folder": "/home/tonton/Téléchargements/zouip_download/"
+    },
+    "sender": {
+        "receiver_ids": [
+            ["192.168.1.12", "12345", "azerty"]
+        ]
+    }
+}

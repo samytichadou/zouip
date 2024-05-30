@@ -2,7 +2,7 @@
 Description=zouip
 
 [Service]
-ExecStart=/home/tonton/Taf/zouip/dev/clipboard_receive.sh
+ExecStart=/home/tonton/Taf/zouip/dev/clipboard_send.sh
 
 [Install]
 WantedBy=default.target
