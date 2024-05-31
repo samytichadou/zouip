@@ -2,7 +2,7 @@ import os
 import subprocess
 import json
 import dbus
-import time
+import socket
 from gi.repository import GLib
 from dbus.mainloop.glib import DBusGMainLoop
 
@@ -77,76 +77,53 @@ old_content = None
 ################
 
 
-def build_handshake_command(
-    receiver_datas,
-    text_content = "", 
-    files_content = [],
-):
-    # passphrase;;type;;file01_name;;file02_name (if files)
-    
-    string = f"{receiver_datas[3]};;"
-    
-    if text_content:
-        string += "text"
-    elif files_content:
-        string += "files"
-        for filepath in files_content:
-            filename = os.path.basename(filepath)
-            string += f";;{filename}"
-    else:
-        return None
-    
-    handhsake_cmd = f" echo '{string}' | netcat -q0 {receiver_datas[0]} {receiver_datas[1]}"
-    
-    return handhsake_cmd
-
-
-def get_files_size(file_list):
-    files_size = 0
-    for filepath in file_list:
-        if os.path.isfile(filepath):
-            files_size += os.path.getsize(filepath)
+def get_file_size(filepath):
+    file_size = None
+    if os.path.isfile(filepath):
+        files_size = os.path.getsize(filepath)
     return files_size
 
 
 def get_plasma_clipboard_content():
     print("Getting plasma clipboard content")
     
-    text_content = None
     file_list = []
     
     cmd = "dbus-send --print-reply --type=method_call \
     --dest=org.kde.klipper /klipper org.kde.klipper.klipper.getClipboardContents"
-
-    raw_content = subprocess.check_output(cmd, shell=True)
-    string_content = str(raw_content).split('string "')[1].split(r'"\n')[0]
     
+    # Format string
+    raw_content = subprocess.check_output(cmd, shell=True)
+    start_separator = 'string "'
+    start = str(raw_content).split(start_separator)[0]
+    string_content = str(raw_content)[len(start)+len(start_separator):][:-3]
+    
+    # Get file or text
     if string_content.startswith("file://"):
         file_list = string_content.split(" file://")
         file_list[0] = file_list[0].split("file://")[1]
     else:
-        text_content = string_content
+        filepath = write_text_to_temp_file(string_content)
+        file_list.append(filepath)
         
-    return text_content, file_list, string_content
+    return file_list, string_content
 
 
 def get_clipboard_content():
     if "plasma" in desktop_env:
-        text_content, file_list, string_content = get_plasma_clipboard_content()
+        file_list, string_content = get_plasma_clipboard_content()
         
-    if text_content:
-        print(f"Text content : {text_content}")
-    else:
+    if file_list:
         print(f"File content : {file_list}")
         
-    return text_content, file_list, string_content
+    return file_list, string_content
 
 
 def write_text_to_temp_file(
     text,
 ):
     
-    filepath = os.path.join(config_datas["zouip_folder"], "clipboard_temp.txt")
+    filepath = os.path.join(config_datas["zouip_folder"], "clipboard_content.txt")
     
     print(f"Writing text content to temporary filepath : {filepath}")
     
@@ -156,39 +133,75 @@ def write_text_to_temp_file(
         
     with open(filepath, "w") as file:
         file.writelines(line_list)
+
+    # with open(filepath, "w") as f:
+    #     f.write(text)
+    #     f.close()
     
     return filepath
 
 
-def send_clipboard_content(
-    text_content,
+def _socket_send(
+    host,
+    port,
+    request,
     file_list,
-    receiver,
 ):
     
-    print("Sending clipboard content")
-    netcat_cmd = f" | netcat {receiver[0]} {receiver[2]} -q0"
-
-    # Text content
-    if text_content:
+    # Connect to server
+    s = socket.socket()
+    try:
+        s.connect((host,int(port)))
+    except ConnectionRefusedError:
+        print(f"Unable to connect to {host}-{port}, aborting")
+        return False
+    
+    # Send server request
+    print(f"Sending request to {host}-{port} - {request}")
+    s.send(request.encode())
+    
+    # Get server answer
+    answer = s.recv(1024).decode()
+    
+    # Check if answer positive
+    if answer=="Denied":
+        print(f"Request denied by {host}-{port}, aborting")
+        s.close()
+        return False
+    print(f"Request granted by {host}-{port}, sending content")
+    s.close()
+    
+    # Send files
+    for filepath in file_list:
+        # Connect
+        s = socket.socket()
+        s.connect((host,int(port)))
         
-        # Store in file
-        filepath = write_text_to_temp_file(text_content)
-        file_list.append(filepath)
+        # Send info message
+        print(f"Sending {filepath} to {host}-{port}")
+        file_message = f"{os.path.basename(filepath)};;0"
+        s.send(file_message.encode())
         
-    # Files content
-    if file_list:
+        # Send file
+        f = open(filepath, "rb", encoding=None)
+        s.sendfile(f)
         
-        for filepath in file_list:
-            
-            send_cmd = f"cat {filepath}{netcat_cmd}"
-            print(f"Sending command : {send_cmd}")
-            subprocess.call(send_cmd, shell=True)
+        s.close()
+    
+    # Close connection
+    print(f"Closing connection with {host}-{port}")
     
     return True
-        
 
 
+def build_request_string(
+    file_list,
+    passphrase,
+):
+    request_string = f"{passphrase};;{len(file_list)}"
+    return request_string
+    
+    
 def dbus_monitor_loop(
     bus_name,
     interface_keyword,
@@ -213,13 +226,18 @@ def dbus_monitor_loop(
     loop = GLib.MainLoop()
     loop.run()
 
+
 def dbus_callback(*args, **kwargs):
-    # TODO Prevent double call
     print()
     print("DBUS clipboard signal detected")
     
     # Get clipboard content
-    text_content, file_list, string_content = get_clipboard_content()
+    file_list, string_content = get_clipboard_content()
+    
+    # Check for empty file_list
+    if not file_list:
+        print("Invalid clipboard, avoiding")
+        return False
     
     # Check for old call
     global old_content
@@ -227,47 +245,28 @@ def dbus_callback(*args, **kwargs):
         print("Clipboard did not change, avoiding")
         return False
     old_content = string_content
-
-    # Check if limit size
-    if not text_content and file_list:
-        print("Getting files size")
-        files_size = get_files_size(file_list)
-        if files_size > config_datas["sender"]["size_limit"]:
-            print(f"Files size superior to size limit ({files_size}>{config_datas['sender']['size_limit']}), avoiding")
-            return False
-        else:
-            print(f"Files size inferior to size limit ({files_size}<{config_datas['sender']['size_limit']}), proceeding")
     
     # Send for every receiver
     for receiver in config_datas["sender"]["receiver_ids"]:
-        
-        # Build handshake command for every receivers
-        print(f"Building command handshake to {receiver[0]}-{receiver[1]}")
-        cmd = build_handshake_command(
-            receiver,
-            text_content,
+        request_string = build_request_string(
             file_list,
+            receiver[2],
         )
         
-        if cmd is None:
-            print(f"Invalid content to send to {receiver[0]}-{receiver[1]}, avoiding")
-            return False
-        
-        print(f"Sending command handshake to {receiver[0]}-{receiver[1]} : {cmd}")
-        subprocess.call(cmd, shell=True)
-        
-        # Send clipboard content
-        send_clipboard_content(
-            text_content,
+        _socket_send(
+            receiver[0],
+            receiver[1],
+            request_string,
             file_list,
-            receiver,
         )
-    
+                    
     # for i, arg in enumerate(args):
     #     print("arg:%d        %s" % (i, str(arg)))
     # print('kwargs:')
     # print(kwargs)
     # print('---end----')
+    
+    return True
     
 
 def zouip_sender_main():
