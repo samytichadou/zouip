@@ -6,6 +6,9 @@ import socket
 from gi.repository import GLib
 from dbus.mainloop.glib import DBusGMainLoop
 
+### Get common path
+current_folder = os.path.dirname(os.path.realpath(__file__))
+config_filepath = os.path.join(current_folder, "zouip_config.json")
 
 def read_json(filepath):
     if not os.path.isfile(filepath):
@@ -44,8 +47,6 @@ else:
 
 ### Get configuration
 print("Reading configuration file")
-current_folder = os.path.dirname(os.path.realpath(__file__))
-config_filepath = os.path.join(current_folder, "zouip_config.json")
 config_datas = read_json(config_filepath)
 
 if config_datas is None:
@@ -96,7 +97,7 @@ def get_plasma_clipboard_content():
     raw_content = subprocess.check_output(cmd, shell=True)
     start_separator = 'string "'
     start = str(raw_content).split(start_separator)[0]
-    string_content = str(raw_content)[len(start)+len(start_separator):][:-3]
+    string_content = str(raw_content)[len(start)+len(start_separator):][:-4]
     
     # Get file or text
     if string_content.startswith("file://"):

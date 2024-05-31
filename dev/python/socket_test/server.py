@@ -1,7 +1,7 @@
 import socket, time, os
 
 passphrase = "azerty"
-receive_folder = "/home/tonton/Taf/UBUNTU_TOUCH/zouip/"
+receive_folder = "/home/tonton/Téléchargements/zouip/receive_server/"
 
 def _socket_server(
     port,
@@ -70,4 +70,4 @@ def _socket_server(
 
             break
 
-_socket_server(22345, passphrase, receive_folder)
+_socket_server(12345, passphrase, receive_folder)
