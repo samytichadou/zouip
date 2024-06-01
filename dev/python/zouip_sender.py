@@ -5,6 +5,9 @@ import dbus
 import socket
 from gi.repository import GLib
 from dbus.mainloop.glib import DBusGMainLoop
+from urllib.parse import unquote
+
+# TODO filepath in utf-8 or path object to avoid special character problem
 
 ### Get common path
 current_folder = os.path.dirname(os.path.realpath(__file__))
@@ -79,10 +82,10 @@ old_content = None
 
 
 def get_file_size(filepath):
-    file_size = None
+    file_size = 0
     if os.path.isfile(filepath):
-        files_size = os.path.getsize(filepath)
-    return files_size
+        file_size = os.path.getsize(filepath)
+    return file_size
 
 
 def get_plasma_clipboard_content():
@@ -97,8 +100,8 @@ def get_plasma_clipboard_content():
     raw_content = subprocess.check_output(cmd, shell=True)
     start_separator = 'string "'
     start = str(raw_content).split(start_separator)[0]
-    string_content = str(raw_content)[len(start)+len(start_separator):][:-4]
-    
+    string_content = unquote(str(raw_content)[len(start)+len(start_separator):][:-4])
+
     # Get file or text
     if string_content.startswith("file://"):
         file_list = string_content.split(" file://")
@@ -154,7 +157,7 @@ def _socket_send(
     try:
         s.connect((host,int(port)))
     except ConnectionRefusedError:
-        print(f"Unable to connect to {host}-{port}, aborting")
+        print(f"Unable to connect to {host}-{port}, avoiding")
         return False
     
     # Send server request
@@ -172,31 +175,61 @@ def _socket_send(
     print(f"Request granted by {host}-{port}, sending content")
     s.close()
     
-    # Send files
-    for filepath in file_list:
-        
-        # Check if filepath is valid
-        if not os.path.isfile(filepath):
-            print("Invalid filepath : {filepath}, avoiding")
-            continue
+    # TODO
+    # Send on demand files through request message from server
+    
+    # Request loop
+    while True:
         
         # Connect
         s = socket.socket()
         s.connect((host,int(port)))
         
-        # Send info message
-        print(f"Sending {filepath} to {host}-{port}")
-        file_message = f"{os.path.basename(filepath)};;{get_file_size(filepath)}"
-        s.send(file_message.encode())
+        # Wait for file request
+        print("Waiting for server file request")
+        request = s.recv(1024).decode()
         
-        # Send file
-        f = open(filepath, "rb", encoding=None)
-        # TODO sometimes text does not pass between computers
-        # TODO sometimes several files return error (dell picture aniv_m 2 files)
-        s.sendfile(f)
+        # Get request
+        if request.startswith("avoid;;"):
+            request = request.split("avoid;;")[1]
+            remaining = int(request.split(";;")[0].split("remaining:")[1])
+            filepath = request.split(";;")[1].split("file:")[1]
+            
+            print(f"{filepath} avoided by server, closing connection")
+            s.close()
+            
+            # No remaining file, end
+            if remaining == 0:
+                break
+            # Remaining file, continue
+            else:
+                continue
+        
+        remaining = int(request.split(";;")[0].split("remaining:")[1])
+        filepath = request.split(";;")[1].split("file:")[1]
+        
+        print(f"File request received, trying to send : {filepath}")
+        
+        # Send file if exists
+        if os.path.isfile(filepath):
+            f = open(filepath, "rb", encoding=None)
+            print(f"Sending file : {filepath}")
+            s.sendfile(f)
+            print(f"File sent : {filepath}")
+        else:
+            print(f"File does not exists : {filepath}")
+            # Send empty packet
+            s.send(b"")
+        
+        # Check remaining files
+        print(f"Remaining files : {remaining}")
+        if remaining == 0:
+            print("No file remaining, closing connection")
+            s.close()
+            break
         
         s.close()
-    
+                    
     # Close connection
     print(f"Closing connection with {host}-{port}")
     
@@ -207,7 +240,9 @@ def build_request_string(
     file_list,
     passphrase,
 ):
-    request_string = f"{passphrase};;{len(file_list)}"
+    request_string = f"{passphrase};;"
+    for f in file_list:
+        request_string += f"[{f};;{get_file_size(f)}]"
     return request_string
     
     
@@ -262,6 +297,8 @@ def dbus_callback(*args, **kwargs):
             receiver[2],
         )
         
+        # TODO Split into multiple lines if too long
+
         _socket_send(
             receiver[0],
             receiver[1],
