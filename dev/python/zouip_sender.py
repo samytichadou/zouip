@@ -112,6 +112,10 @@ def get_plasma_clipboard_content():
     return file_list, string_content
 
 
+def get_lomiri_clipboard_content():
+    return
+
+
 def get_clipboard_content():
     if "plasma" in desktop_env:
         file_list, string_content = get_plasma_clipboard_content()

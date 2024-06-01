@@ -3,7 +3,9 @@
     "receiver": {
         "receive_port": 12346,
         "passphrase": "azerty",
-        "size_limit": 100000000
+        "size_limit": 100000000,
+        "keep_files": 0,
+        "no_copy_to_clipboard": 0,
     },
     "sender": {
         "receiver_ids": [
