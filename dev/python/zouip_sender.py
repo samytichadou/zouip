@@ -100,9 +100,12 @@ def get_plasma_clipboard_content():
     start_separator = 'string "'
     start = str(raw_content).split(start_separator)[0]
     string_content = unquote(str(raw_content)[len(start)+len(start_separator):][:-4])
-
+    
+    # TODO Unquote problem with text clipboard
+    
     # Get file or text
     if string_content.startswith("file://"):
+        # string_content = unquote(string_content)
         file_list = string_content.split(" file://")
         file_list[0] = file_list[0].split("file://")[1]
     else:
