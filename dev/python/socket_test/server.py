@@ -46,13 +46,18 @@ def _socket_server(
                 file_message = c.recv(1024).decode()
                 name, size = file_message.split(";;")
                 
-                # Get clipboard file and change name
+                # Get filepath
                 if name=="clipboard_content.txt":
                     name = "clipboard_from.txt"
+                filepath = os.path.join(receive_folder, name)
+                                        
+                # # Remove file if existing
+                # if os.path.isfile(filepath):
+                #     os.remove(filepath)
 
                 # Receive file
                 print(f"Receiving : {name}")
-                filetodown = open(os.path.join(receive_folder, name), "wb")
+                filetodown = open(filepath, "wb")
                 data = c.recv(1024)
                 while data:
                     filetodown.write(data)

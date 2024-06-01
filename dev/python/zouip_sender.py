@@ -174,17 +174,25 @@ def _socket_send(
     
     # Send files
     for filepath in file_list:
+        
+        # Check if filepath is valid
+        if not os.path.isfile(filepath):
+            print("Invalid filepath : {filepath}, avoiding")
+            continue
+        
         # Connect
         s = socket.socket()
         s.connect((host,int(port)))
         
         # Send info message
         print(f"Sending {filepath} to {host}-{port}")
-        file_message = f"{os.path.basename(filepath)};;0"
+        file_message = f"{os.path.basename(filepath)};;{get_file_size(filepath)}"
         s.send(file_message.encode())
         
         # Send file
         f = open(filepath, "rb", encoding=None)
+        # TODO sometimes text does not pass between computers
+        # TODO sometimes several files return error (dell picture aniv_m 2 files)
         s.sendfile(f)
         
         s.close()
