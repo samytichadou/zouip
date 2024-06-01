@@ -7,7 +7,6 @@ from gi.repository import GLib
 from dbus.mainloop.glib import DBusGMainLoop
 from urllib.parse import unquote
 
-# TODO filepath in utf-8 or path object to avoid special character problem
 
 ### Get common path
 current_folder = os.path.dirname(os.path.realpath(__file__))
