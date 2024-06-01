@@ -1,19 +1,51 @@
 import socket
 import time
 import os
+import json
 
-passphrase = "azerty"
-zouip_folder = "/home/tonton/Téléchargements/zouip/"
-size_limit = 100000000
-port = 12346
 
 # TODO Empty receive folder if needed (config ?)
 # TODO Timeout if not receiving after 1s
+
+
+### Get common path
+current_folder = os.path.dirname(os.path.realpath(__file__))
+config_filepath = os.path.join(current_folder, "zouip_config.json")
+
+def read_json(filepath):
+    if not os.path.isfile(filepath):
+        return None
+    with open(filepath, "r") as read_file:
+        dataset = json.load(read_file)
+    return dataset
+
+
+##### INIT #####
+
+### Get configuration
+print("Reading configuration file")
+config_datas = read_json(config_filepath)
+
+if config_datas is None:
+    print("No configuration file, aborting")
+    exit()
+    
+print(config_datas)
+
+### Create zouip dirs if needed
+zouip_folder = config_datas["zouip_folder"]
+if not os.path.isdir(zouip_folder):
+    print(f"Creating zouip folder : {zouip_folder}")
+    os.makedirs(zouip_folder)
+else:
+    print(f"Zouip folder found : {zouip_folder}")
+
 
 def _socket_server(
     port,
     passphrase,
     receive_folder,
+    size_limit
 ):
     
     # Get socket
@@ -26,10 +58,11 @@ def _socket_server(
         print(f"Request from : {addr}")
 
         while True:
-            rcvdData = c.recv(1024).decode()
+            # Get request from sender
+            sender_request = c.recv(8192).decode()
             
             # Deny request if wrong passphrase
-            if not rcvdData.startswith(f"{passphrase};;"):
+            if not sender_request.startswith(f"{passphrase};;"):
                 print("Request denied")
                 c.send("Denied".encode())
                 c.close()
@@ -38,10 +71,8 @@ def _socket_server(
             print("Request granted")
             c.send("Granted".encode())
             
-            # TODO Get multiple lines if too long
-            
             # Get files list
-            file_list = rcvdData.split("]")
+            file_list = sender_request.split("]")
             for f in file_list:
                 index = file_list.index(f)
                 if f == "":
@@ -119,11 +150,18 @@ def _socket_server(
                 # Close connection
                 c.close()
             
-            # rcvdData = c.recv(1024).decode()
-            # print(f"INPUT: {rcvdData}")
+            # sender_request = c.recv(1024).decode()
+            # print(f"INPUT: {sender_request}")
             
             print(f"Closing connection with {addr}")
 
             break
 
-_socket_server(port, passphrase, zouip_folder)
+
+print("Starting zouip receiver")
+_socket_server(
+    config_datas["receiver"]["receive_port"],
+    config_datas["receiver"]["passphrase"],
+    config_datas["zouip_folder"],
+    config_datas["receiver"]["size_limit"],
+)

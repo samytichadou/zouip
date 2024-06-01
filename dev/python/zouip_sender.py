@@ -150,18 +150,24 @@ def _socket_send(
     request,
     file_list,
 ):
+    # Check if request is not too long (>8192)
+    if len(request) > 8192:
+        print("Request too long (too many files), aborting")
+        return False
     
     # Connect to server
     s = socket.socket()
     try:
         s.connect((host,int(port)))
     except ConnectionRefusedError:
-        print(f"Unable to connect to {host}-{port}, avoiding")
+        print(f"Unable to connect to {host}-{port}, aborting")
         return False
     
     # Send server request
     print(f"Sending request to {host}-{port} - {request}")
     s.send(request.encode())
+    
+    # s.sendfile(request.encode())
     
     # Get server answer
     answer = s.recv(1024).decode()
