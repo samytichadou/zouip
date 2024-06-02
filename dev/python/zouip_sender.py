@@ -24,24 +24,26 @@ def read_json(filepath):
 
 
 ### Get Desktop Environment specifics
-desktop_env = os.environ['DESKTOP_SESSION']
+# TODO Remove adb debug exception
+try:
+    desktop_env = os.environ['DESKTOP_SESSION']
+except KeyError:
+    desktop_env = "ubuntu-touch"
 
 print("Starting Zouip Sender Daemon")
 
 if "plasma" in desktop_env:
     print("Desktop environment supported : Plasma, proceeding")
     
-    bus_name = "org.kde.klipper"
-    interface_keyword="klipper"
-    member_keyword="clipboardHistoryUpdated"
+    dbus_interface = "org.kde.klipper.klipper"
+    dbus_member = "clipboardHistoryUpdated"
     
 elif desktop_env == "ubuntu-touch":
     print("Desktop environment supported : Ubuntu Touch, proceeding")
     
-    bus_name = "org.kde.klipper"
-    interface_keyword="klipper"
-    member_keyword="clipboardHistoryUpdated"
-
+    dbus_interface = "com.lomiri.content.dbus.Service"
+    dbus_member = "CreatePaste"
+    
 else:
     print("Unsupported desktop environment, aborting")
     exit()
@@ -96,12 +98,12 @@ def get_plasma_clipboard_content():
     --dest=org.kde.klipper /klipper org.kde.klipper.klipper.getClipboardContents"
     
     # Format string
-    raw_content = subprocess.check_output(cmd, shell=True)
+    byte_content = subprocess.check_output(cmd, shell=True)
+    raw_content = byte_content.decode('utf-8') 
+    
     start_separator = 'string "'
     start = str(raw_content).split(start_separator)[0]
-    string_content = unquote(str(raw_content)[len(start)+len(start_separator):][:-4])
-    
-    # TODO Unquote problem with text clipboard
+    string_content = unquote(str(raw_content)[len(start)+len(start_separator):][:-2])
     
     # Get file or text
     if string_content.startswith("file://"):
@@ -115,13 +117,43 @@ def get_plasma_clipboard_content():
     return file_list, string_content
 
 
-def get_lomiri_clipboard_content():
-    return
+def get_lomiri_clipboard_content(
+    args_list,
+):
+
+    print("Getting lomiri clipboard content")
+    
+    file_list = []
+            
+    # Get content from arg
+    for arg in args_list:
+        if str(arg).startswith("dbus.Array([dbus.Byte("):
+            # print()
+            # print(arg)
+            raw_content = ''.join([chr(byte) for byte in arg])
+            string_content = unquote(raw_content)
+            
+    # Get file or text
+    if "text/uri-listfile:/" in string_content:
+        file_content = string_content.split(r"x-special/gnome-copied-filescopy")[1]
+        file_content = file_content.split("text/plainfile://")[0]
+        file_content = file_content.replace(r"file://", "")
+        file_list = file_content.splitlines()
+        file_list.pop(0)
+    else:
+        text_content = string_content.split("text/plain")[1].split("text/html<!DOCTYPE HTML PUBLIC")[0]
+        text_content = text_content.encode("latin1").decode()
+        filepath = write_text_to_temp_file(text_content)
+        file_list.append(filepath)
+    
+    return file_list, string_content
 
 
-def get_clipboard_content():
+def get_clipboard_content(args_list):
     if "plasma" in desktop_env:
         file_list, string_content = get_plasma_clipboard_content()
+    elif desktop_env == "ubuntu-touch":
+        file_list, string_content = get_lomiri_clipboard_content(args_list)
         
     if file_list:
         print(f"File content : {file_list}")
@@ -136,7 +168,7 @@ def write_text_to_temp_file(
     filepath = os.path.join(config_datas["zouip_folder"], "clipboard_content.txt")
     
     print(f"Writing text content to temporary filepath : {filepath}")
-    
+        
     line_list = []
     for line in text.split(r'\n'):
         line_list.append(f"{line}\n")
@@ -258,7 +290,7 @@ def build_request_string(
     return request_string
     
     
-def dbus_monitor_loop(
+def dbus_monitor_loop_old(
     bus_name,
     interface_keyword,
     member_keyword,
@@ -283,79 +315,66 @@ def dbus_monitor_loop(
     loop.run()
 
 
-def dbus_callback(*args, **kwargs):
-    print()
-    print("DBUS clipboard signal detected")
-    
-    # Get clipboard content
-    file_list, string_content = get_clipboard_content()
-    
-    # Check for empty file_list
-    if not file_list:
-        print("Invalid clipboard, avoiding")
-        return False
-    
-    # Check for old call
-    global old_content
-    if string_content == old_content:
-        print("Clipboard did not change, avoiding")
-        return False
-    old_content = string_content
-    
-    # Send for every receiver
-    for receiver in config_datas["sender"]["receiver_ids"]:
-        request_string = build_request_string(
-            file_list,
-            receiver[2],
-        )
-        
-        # TODO Split into multiple lines if too long
+def dbus_monitor_loop(
+    match_string,
+    callback_function,
+):
+    DBusGMainLoop(set_as_default=True)
 
-        _socket_send(
-            receiver[0],
-            receiver[1],
-            request_string,
-            file_list,
-        )
-                    
-    # for i, arg in enumerate(args):
-    #     print("arg:%d        %s" % (i, str(arg)))
-    # print('kwargs:')
-    # print(kwargs)
-    # print('---end----')
+    bus = dbus.SessionBus()
+    bus.add_match_string_non_blocking(
+        match_string
+    )
+    bus.add_message_filter(callback_function)
+
+    loop = GLib.MainLoop()
+    loop.run()
+
+# def dbus_callback(*args, **kwargs):
+def dbus_callback(bus, message):
     
-    return True
-    
+    # Get proper callback
+    if dbus_member in str(message):
+            
+        print()
+        print("DBUS clipboard signal detected")
+        
+        # for arg in message.get_args_list():
+        #     print(arg)
+        
+        # Get clipboard content
+        file_list, string_content = get_clipboard_content(message.get_args_list())
+        
+        # Send for every receiver
+        global old_content
+        if file_list and string_content != old_content:
+            for receiver in config_datas["sender"]["receiver_ids"]:
+                request_string = build_request_string(
+                    file_list,
+                    receiver[2],
+                )
+
+                _socket_send(
+                    receiver[0],
+                    receiver[1],
+                    request_string,
+                    file_list,
+                )
+        else:
+            print("Invalid clipboard, avoiding")            
+                
+        old_content = string_content
 
 def zouip_sender_main():
 
     ### DBUS
 
     print("Starting dbus monitoring")
-    
-    # DBUS monitoring loop
+    match_string = f"interface='{dbus_interface}',member='{dbus_member}',eavesdrop='true'"
     dbus_monitor_loop(
-        bus_name,
-        interface_keyword,
-        member_keyword,
+        match_string,
         dbus_callback,
     )
-            
-    # Connect to the session bus (as opposed to the system bus)
-    # session = dbus.SessionBus()
-    # 
-    # #-- create proxy object of D-Bus object
-    # obj_proxy = dbus.proxies.ProxyObject(
-    #     conn=session,
-    #     bus_name="org.freedesktop.Notifications",
-    #     object_path="/org/freedesktop/Notifications"),
-    # )
-
-    # string +=",eavesdrop='true'"
-    # bus.add_match_string(string)
-    #
-    # mainloop = gobject.MainLoop ()
-    # mainloop.run ()
 
 
 # Run main function
