@@ -12,6 +12,7 @@ import json
 current_folder = os.path.dirname(os.path.realpath(__file__))
 config_filepath = os.path.join(current_folder, "zouip_config.json")
 
+
 def read_json(filepath):
     if not os.path.isfile(filepath):
         return None
@@ -19,6 +20,32 @@ def read_json(filepath):
         dataset = json.load(read_file)
     return dataset
 
+
+def get_folder_size(folderpath):
+    folder_size = 0
+    for root, dirs, files in os.walk(folderpath):
+        for f in files:
+            folder_size += os.path.getsize(os.path.join(root, f))
+    return folder_size
+
+
+def get_file_list_from_request(request):
+    
+    file_list = request.split("]")
+    
+    for f in file_list:
+        index = file_list.index(f)
+        if f == "":
+            file_list.pop(index)
+            continue
+        
+        f = f.split("[")[1]
+        # f = (f.split(";;")[0], f.split(";;")[1], f.split(";;")[2])
+        f = f.split(";;")
+        
+        file_list[index] = f
+        
+    return file_list
 
 ##### INIT #####
 
@@ -60,6 +87,7 @@ def _socket_server(
         while True:
             # Get request from sender
             sender_request = c.recv(8192).decode()
+            print(sender_request)
             
             # Deny request if wrong passphrase
             if not sender_request.startswith(f"{passphrase};;"):
@@ -72,16 +100,7 @@ def _socket_server(
             c.send("Granted".encode())
             
             # Get files list
-            file_list = sender_request.split("]")
-            for f in file_list:
-                index = file_list.index(f)
-                if f == "":
-                    file_list.pop(index)
-                    continue
-                f = f.split("[")[1]
-                f = (f.split(";;")[0]), f.split(";;")[1]
-                file_list[index] = f
-                
+            file_list = get_file_list_from_request(sender_request)                
             file_number = len(file_list)
             
             c.close()
@@ -96,36 +115,56 @@ def _socket_server(
                 
                 # Get file name
                 file_name = os.path.basename(f[0])
+                subdir = f[1]
                 
                 # Connect to client
                 s.listen(5)
                 c, addr = s.accept()
                 
-                # Check size
-                if int(f[1]) > size_limit:
-                    print(f"File size exceeding size limit : {file_name}, avoiding")
-                    request_file_message = f"avoid;;remaining:{remaining};;file:{f[0]}"
-                    c.send(request_file_message.encode())
-                    c.close()
-                    continue
+                # Check size (0=no limit)
+                if size_limit != 0:
+                    if int(f[2]) > size_limit or int(f[3]) > size_limit:
+                        print(f"File size exceeding size limit : {file_name}, avoiding")
+                        request_file_message = f"avoid;;remaining:{remaining};;file:{f[0]}"
+                        c.send(request_file_message.encode())
+                        c.close()
+                        continue
                 
                 # Get destination filepath
                 if file_name=="clipboard_content.txt":
                     file_name = "clipboard_from.txt"
-                filepath = os.path.join(zouip_folder, file_name)
+                    
+                subroot_path = None
+                
+                # Get filepath with subdir
+                if subdir!=".":
+                    # Get filepath with subdir
+                    filepath = os.path.join(
+                        os.path.join(zouip_folder, subdir),
+                        file_name
+                    )
+                # Get filepath no subdir
+                else:
+                    filepath = os.path.join(zouip_folder, file_name)
                 
                 # Check if file available in local folder
-                if os.path.isfile(filepath)\
-                and os.path.getsize(filepath) == int(f[1]):
+                if (
+                    os.path.isfile(filepath) and\
+                    os.path.getsize(filepath) == int(f[2])
+                ):
                     print(f"File already available on disk : {file_name}, avoiding")
                     request_file_message = f"avoid;;remaining:{remaining};;file:{f[0]}"
                     c.send(request_file_message.encode())
                     c.close()
                     continue
                 
+                # Create subdir if needed
+                basedir = os.path.dirname(filepath)
+                os.makedirs(basedir, exist_ok=True)
+                
                 # Send file request from original request message
                 request_file_message = f"remaining:{remaining};;file:{f[0]}"
-                print(f"Requesting : {f[0]} - {f[1]}k")
+                print(f"Requesting : {f[0]} - {f[2]}k")
                 print(f"Remaining files to request : {remaining}")
                 c.send(request_file_message.encode())
                 

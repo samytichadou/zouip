@@ -87,12 +87,12 @@ old_content = None
 
 ################
 
-
-def get_file_size(filepath):
-    file_size = 0
-    if os.path.isfile(filepath):
-        file_size = os.path.getsize(filepath)
-    return file_size
+def get_folder_size(folderpath):
+    folder_size = 0
+    for root, dirs, files in os.walk(folderpath):
+        for f in files:
+            folder_size += os.path.getsize(os.path.join(root, f))
+    return folder_size
 
 
 def get_plasma_clipboard_content():
@@ -156,15 +156,51 @@ def get_lomiri_clipboard_content(
 
 
 def get_clipboard_content(args_list):
+    # Get clipboard content from DE
     if "plasma" in desktop_env:
         file_list, string_content = get_plasma_clipboard_content()
     elif desktop_env == "ubuntu-touch":
         file_list, string_content = get_lomiri_clipboard_content(args_list)
-        
+    
+    # Expand folder to files only
+    formatted_file_list = []
+    print("D0")
+    for f in file_list:
+        print(f)
+        if os.path.isfile(f):
+            formatted_file_list.append(
+                (
+                    f,
+                    ".",
+                    os.path.getsize(f),
+                    0,
+                )
+            )
+            
+        elif os.path.isdir(f):
+            print("D2")
+            basedir = os.path.basename(f)
+            dir_size = get_folder_size(f)
+            print("D3")
+            for root, dirs, files in os.walk(f):
+                for file in files:
+                    print(file)
+                    formatted_file_list.append(
+                        (
+                            os.path.join(root, file),
+                            os.path.join(
+                                basedir,
+                                os.path.relpath(root, f)
+                            ),
+                            os.path.getsize(os.path.join(root, file)),
+                            dir_size,
+                        )
+                    )
+    print("D0")
     if file_list:
-        print(f"File content : {file_list}")
+        print(f"File content : {formatted_file_list}")
         
-    return file_list, string_content
+    return formatted_file_list, string_content
 
 
 def write_text_to_temp_file(
@@ -290,9 +326,10 @@ def build_request_string(
     file_list,
     passphrase,
 ):
+    # passphrase;;[file_path;;file_size;;file_subfolder]
     request_string = f"{passphrase};;"
     for f in file_list:
-        request_string += f"[{f};;{get_file_size(f)}]"
+        request_string += f"[{f[0]};;{f[1]};;{f[2]};;{f[3]}]"
     return request_string
     
     
@@ -358,7 +395,7 @@ def dbus_callback(bus, message):
                 
                 # Check if active receiver
                 if receiver[3] == "1":
-                    
+
                     request_string = build_request_string(
                         file_list,
                         receiver[2],
