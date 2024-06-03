@@ -59,14 +59,20 @@ if config_datas is None:
     
 print(config_datas)
 
+# Check for receivers
 receiver_ids = config_datas["sender"]["receiver_ids"]
 
-if not receiver_ids:
-    print("No Receiver found, aborting")
-    exit()
-
+chk_active_receivers = False
 for r in receiver_ids:
-    print(f"Receiver found : {r[0]} on port : {r[1]}, passphrase : {r[2]}")
+    if r[3]=="1":
+        print(f"Active receiver found : {r[0]} on port : {r[1]}, passphrase : {r[2]}")
+        chk_active_receivers = True
+    else:
+        print(f"Inactive receiver found : {r[0]} on port : {r[1]}, passphrase : {r[2]}")
+        
+if not chk_active_receivers:
+    print("No active receiver found, aborting")
+    exit()
     
     
 ### Create zouip dirs if needed
@@ -349,17 +355,21 @@ def dbus_callback(bus, message):
         global old_content
         if file_list and string_content != old_content:
             for receiver in config_datas["sender"]["receiver_ids"]:
-                request_string = build_request_string(
-                    file_list,
-                    receiver[2],
-                )
+                
+                # Check if active receiver
+                if receiver[3] == "1":
+                    
+                    request_string = build_request_string(
+                        file_list,
+                        receiver[2],
+                    )
 
-                _socket_send(
-                    receiver[0],
-                    receiver[1],
-                    request_string,
-                    file_list,
-                )
+                    _socket_send(
+                        receiver[0],
+                        receiver[1],
+                        request_string,
+                        file_list,
+                    )
         else:
             print("Invalid clipboard, avoiding")            
                 
