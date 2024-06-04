@@ -2,6 +2,7 @@ import socket
 import time
 import os
 import json
+import subprocess
 
 
 # TODO Empty receive folder if needed (config ?)
@@ -85,110 +86,128 @@ def _socket_server(
         print(f"Request from : {addr}")
 
         while True:
+            
             # Get request from sender
             sender_request = c.recv(8192).decode()
             print(sender_request)
             
-            # Deny request if wrong passphrase
-            if not sender_request.startswith(f"{passphrase};;"):
+            ### Deny request if wrong passphrase or request form
+            if not sender_request.startswith(f"{passphrase};;")\
+            or sender_request.split(";;")[1] not in {"files", "command"}:
                 print("Request denied")
                 c.send("Denied".encode())
                 c.close()
                 break
             
-            print("Request granted")
-            c.send("Granted".encode())
+            ### File request
+            elif sender_request.split(";;")[1] == "files":
             
-            # Get files list
-            file_list = get_file_list_from_request(sender_request)                
-            file_number = len(file_list)
-            
-            c.close()
-            
-            # File receive
-            print(f"Requesting {file_number} File(s)")
-            
-            for f in file_list:
+                c.send("Granted".encode())
+                print("Files download request granted")
                 
-                # Get remaining files number
-                remaining = len(file_list)-(file_list.index(f)+1)
+                # Get files list
+                file_list = get_file_list_from_request(sender_request)                
+                file_number = len(file_list)
                 
-                # Get file name
-                file_name = os.path.basename(f[0])
-                subdir = f[1]
+                c.close()
                 
-                # Connect to client
-                s.listen(5)
-                c, addr = s.accept()
+                # File receive
+                print(f"Requesting {file_number} File(s)")
                 
-                # Check size (0=no limit)
-                if size_limit != 0:
-                    if int(f[2]) > size_limit or int(f[3]) > size_limit:
-                        print(f"File size exceeding size limit : {file_name}, avoiding")
+                for f in file_list:
+                    
+                    # Get remaining files number
+                    remaining = len(file_list)-(file_list.index(f)+1)
+                    
+                    # Get file name
+                    file_name = os.path.basename(f[0])
+                    subdir = f[1]
+                    
+                    # Connect to client
+                    s.listen(5)
+                    c, addr = s.accept()
+                    
+                    # Check size (0=no limit)
+                    if size_limit != 0:
+                        if int(f[2]) > size_limit or int(f[3]) > size_limit:
+                            print(f"File size exceeding size limit : {file_name}, avoiding")
+                            request_file_message = f"avoid;;remaining:{remaining};;file:{f[0]}"
+                            c.send(request_file_message.encode())
+                            c.close()
+                            continue
+                    
+                    # Get destination filepath
+                    if file_name=="clipboard_content.txt":
+                        file_name = "clipboard_from.txt"
+                        
+                    subroot_path = None
+                    
+                    # Get filepath with subdir
+                    if subdir!=".":
+                        # Get filepath with subdir
+                        filepath = os.path.join(
+                            os.path.join(zouip_folder, subdir),
+                            file_name
+                        )
+                    # Get filepath no subdir
+                    else:
+                        filepath = os.path.join(zouip_folder, file_name)
+                    
+                    # Check if file available in local folder
+                    if (
+                        os.path.isfile(filepath) and\
+                        os.path.getsize(filepath) == int(f[2])
+                    ):
+                        print(f"File already available on disk : {file_name}, avoiding")
                         request_file_message = f"avoid;;remaining:{remaining};;file:{f[0]}"
                         c.send(request_file_message.encode())
                         c.close()
                         continue
-                
-                # Get destination filepath
-                if file_name=="clipboard_content.txt":
-                    file_name = "clipboard_from.txt"
                     
-                subroot_path = None
-                
-                # Get filepath with subdir
-                if subdir!=".":
-                    # Get filepath with subdir
-                    filepath = os.path.join(
-                        os.path.join(zouip_folder, subdir),
-                        file_name
-                    )
-                # Get filepath no subdir
-                else:
-                    filepath = os.path.join(zouip_folder, file_name)
-                
-                # Check if file available in local folder
-                if (
-                    os.path.isfile(filepath) and\
-                    os.path.getsize(filepath) == int(f[2])
-                ):
-                    print(f"File already available on disk : {file_name}, avoiding")
-                    request_file_message = f"avoid;;remaining:{remaining};;file:{f[0]}"
+                    # Create subdir if needed
+                    basedir = os.path.dirname(filepath)
+                    os.makedirs(basedir, exist_ok=True)
+                    
+                    # Send file request from original request message
+                    request_file_message = f"remaining:{remaining};;file:{f[0]}"
+                    print(f"Requesting : {f[0]} - {f[2]}k")
+                    print(f"Remaining files to request : {remaining}")
                     c.send(request_file_message.encode())
-                    c.close()
-                    continue
-                
-                # Create subdir if needed
-                basedir = os.path.dirname(filepath)
-                os.makedirs(basedir, exist_ok=True)
-                
-                # Send file request from original request message
-                request_file_message = f"remaining:{remaining};;file:{f[0]}"
-                print(f"Requesting : {f[0]} - {f[2]}k")
-                print(f"Remaining files to request : {remaining}")
-                c.send(request_file_message.encode())
-                
-                # Wait for file incoming
-                data = c.recv(1024) # TODO file not found error
+                    
+                    # Wait for file incoming
+                    data = c.recv(1024) # TODO file not found error
 
-                # Invalid file signal
-                if len(data)==0:
-                    print(f"Invalid file on remote : {f[0]}, avoiding")
+                    # Invalid file signal
+                    if len(data)==0:
+                        print(f"Invalid file on remote : {f[0]}, avoiding")
+                        c.close()
+                        continue
+                    
+                    # Download file
+                    filetodown = open(filepath, "wb")
+                    request_file_message = f"Receiving file : {f[0]}"
+                    while data:
+                        filetodown.write(data)
+                        data = c.recv(1024)
+                    print(f"Received : {filepath}")
+                    filetodown.close()
+                                            
+                    # Close connection
                     c.close()
-                    continue
-                
-                # Download file
-                filetodown = open(filepath, "wb")
-                request_file_message = f"Receiving file : {f[0]}"
-                while data:
-                    filetodown.write(data)
-                    data = c.recv(1024)
-                print(f"Received : {filepath}")
-                filetodown.close()
-                                        
-                # Close connection
-                c.close()
             
+            ### Command request
+            elif sender_request.split(";;")[1] == "command":
+                
+                # Get command
+                command = sender_request.split(";;")[2]
+                
+                # Execute it
+                print(f"Executing command : {command}")
+                subprocess.call(command, shell = True)
+                
+                c.send("Executed".encode())
+                c.close()
+
             # sender_request = c.recv(1024).decode()
             # print(f"INPUT: {sender_request}")
             

@@ -164,7 +164,7 @@ def get_clipboard_content(args_list):
     
     # Expand folder to files only
     formatted_file_list = []
-    print("D0")
+
     for f in file_list:
         print(f)
         if os.path.isfile(f):
@@ -178,10 +178,8 @@ def get_clipboard_content(args_list):
             )
             
         elif os.path.isdir(f):
-            print("D2")
             basedir = os.path.basename(f)
             dir_size = get_folder_size(f)
-            print("D3")
             for root, dirs, files in os.walk(f):
                 for file in files:
                     print(file)
@@ -196,7 +194,6 @@ def get_clipboard_content(args_list):
                             dir_size,
                         )
                     )
-    print("D0")
     if file_list:
         print(f"File content : {formatted_file_list}")
         
@@ -229,8 +226,8 @@ def _socket_send(
     host,
     port,
     request,
-    file_list,
 ):
+
     # Check if request is not too long (>8192)
     if len(request) > 8192:
         print("Request too long (too many files), aborting")
@@ -253,18 +250,26 @@ def _socket_send(
     # Get server answer
     answer = s.recv(1024).decode()
     
-    # Check if answer positive
-    if answer=="Denied":
+    # Check answer
+
+    # Command executed
+    if answer == "Executed":
+        print(f"Command executed by {host}-{port}")
+        s.close()
+        return True
+    
+    # Files upload granted
+    elif answer == "Granted":
+        print(f"Request granted by {host}-{port}, sending content")
+        s.close()
+    
+    # Denied or anything else
+    else:
         print(f"Request denied by {host}-{port}, aborting")
         s.close()
         return False
-    print(f"Request granted by {host}-{port}, sending content")
-    s.close()
     
-    # TODO
-    # Send on demand files through request message from server
-    
-    # Request loop
+    ### File Sending loop
     while True:
         
         # Connect
@@ -322,15 +327,23 @@ def _socket_send(
     return True
 
 
-def build_request_string(
+def build_file_request_string(
     file_list,
     passphrase,
 ):
-    # passphrase;;[file_path;;file_size;;file_subfolder]
-    request_string = f"{passphrase};;"
+    # passphrase;;files;;[file_path;;file_size;;file_subfolder]
+    request_string = f"{passphrase};;files;;"
     for f in file_list:
         request_string += f"[{f[0]};;{f[1]};;{f[2]};;{f[3]}]"
     return request_string
+
+
+def build_command_request_string(
+    command,
+    passphrase,
+):
+    # passphrase;;command;;<command>
+    return f"{passphrase};;command;;{command}"
     
     
 def dbus_monitor_loop_old(
@@ -374,7 +387,7 @@ def dbus_monitor_loop(
     loop.run()
 
 # def dbus_callback(*args, **kwargs):
-def dbus_callback(bus, message):
+def clipboard_dbus_callback(bus, message):
     
     # Get proper callback
     if dbus_member in str(message):
@@ -387,7 +400,7 @@ def dbus_callback(bus, message):
         
         # Get clipboard content
         file_list, string_content = get_clipboard_content(message.get_args_list())
-        
+
         # Send for every receiver
         global old_content
         if file_list and string_content != old_content:
@@ -396,23 +409,22 @@ def dbus_callback(bus, message):
                 # Check if active receiver
                 if receiver[3] == "1":
 
-                    request_string = build_request_string(
+                    request_string = build_file_request_string(
                         file_list,
                         receiver[2],
                     )
-
+                    
                     _socket_send(
                         receiver[0],
                         receiver[1],
                         request_string,
-                        file_list,
                     )
         else:
             print("Invalid clipboard, avoiding")            
                 
         old_content = string_content
 
-def zouip_sender_main():
+def clipboard_sender_main():
 
     ### DBUS
 
@@ -420,9 +432,53 @@ def zouip_sender_main():
     match_string = f"interface='{dbus_interface}',member='{dbus_member}',eavesdrop='true'"
     dbus_monitor_loop(
         match_string,
-        dbus_callback,
+        clipboard_dbus_callback,
     )
 
 
-# Run main function
-zouip_sender_main()
+# Run clipboard sender main function
+clipboard_sender_main()
+
+
+### SMS COMMAND TEST ###
+
+# def send_sms_raw():
+#     
+#     phone_number = number.get()
+#     sms_content = content.get()
+#     
+#     for receiver in config_datas["sender"]["receiver_ids"]:
+#                     
+#         # Check if active receiver
+#         if receiver[3] == "1":
+# 
+#             request_string = build_command_request_string(
+#                 f'/usr/share/ofono/scripts/send-sms /ril_0 {phone_number} "{sms_content}" 0',
+#                 receiver[2],
+#             )
+#             
+#             # print(request_string)
+# 
+#             _socket_send(
+#                 receiver[0],
+#                 receiver[1],
+#                 request_string,
+#             )
+
+### SIMPLE SMS SENDER INTERFACE            
+# import tkinter as tk
+# 
+# root = tk.Tk()
+# 
+# label1 = tk.Label(root, text="Phone Number : ")
+# label1.pack()
+# number = tk.Entry(root, show="*")
+# number.pack()
+# label2 = tk.Label(root, text="Content : ")
+# label2.pack()
+# content = tk.Entry(root)
+# content.pack()
+# button = tk.Button(root, text="Send", command=send_sms_raw)
+# button.pack()
+# 
+# root.mainloop()
