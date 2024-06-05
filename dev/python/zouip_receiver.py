@@ -14,10 +14,10 @@ current_folder = os.path.dirname(os.path.realpath(__file__))
 config_filepath = os.path.join(current_folder, "zouip_config.json")
 
 
-def read_json(filepath):
-    if not os.path.isfile(filepath):
+def get_config_datas():
+    if not os.path.isfile(config_filepath):
         return None
-    with open(filepath, "r") as read_file:
+    with open(config_filepath, "r") as read_file:
         dataset = json.load(read_file)
     return dataset
 
@@ -48,11 +48,12 @@ def get_file_list_from_request(request):
         
     return file_list
 
+
 ##### INIT #####
 
 ### Get configuration
 print("Reading configuration file")
-config_datas = read_json(config_filepath)
+config_datas = get_config_datas()
 
 if config_datas is None:
     print("No configuration file, aborting")
@@ -71,9 +72,6 @@ else:
 
 def _socket_server(
     port,
-    passphrase,
-    receive_folder,
-    size_limit
 ):
     
     # Get socket
@@ -83,6 +81,8 @@ def _socket_server(
     while True:
         s.listen(5)
         c, addr = s.accept()
+        
+        print()
         print(f"Request from : {addr}")
 
         while True:
@@ -91,7 +91,21 @@ def _socket_server(
             sender_request = c.recv(8192).decode()
             print(sender_request)
             
+            # Check if valid receiver
+            valid_sender = None
+            for sender in get_config_datas()["receive_from_list"]:
+                if addr[0] == sender["address"] and sender["active"]:
+                    valid_sender = sender
+                    break
+                    
+            if not valid_sender:
+                print("Sender denied")
+                c.send("Denied".encode())
+                c.close()
+                break
+
             ### Deny request if wrong passphrase or request form
+            passphrase = get_config_datas()["passphrase"]
             if not sender_request.startswith(f"{passphrase};;")\
             or sender_request.split(";;")[1] not in {"files", "command"}:
                 print("Request denied")
@@ -127,7 +141,19 @@ def _socket_server(
                     s.listen(5)
                     c, addr = s.accept()
                     
+                    # Check for clipboard type
+                    if (file_name == "clipboard_content.txt"\
+                    and valid_sender["clipboard_type"] == "file")\
+                    or (file_name != "clipboard_content.txt"\
+                    and valid_sender["clipboard_type"] == "text"):
+                        print(f"Invalid clipboard type, avoiding")
+                        request_file_message = f"avoid;;remaining:{remaining};;file:{f[0]}"
+                        c.send(request_file_message.encode())
+                        c.close()
+                        continue
+                    
                     # Check size (0=no limit)
+                    size_limit = get_config_datas()["size_limit"]
                     if size_limit != 0:
                         if int(f[2]) > size_limit or int(f[3]) > size_limit:
                             print(f"File size exceeding size limit : {file_name}, avoiding")
@@ -143,6 +169,8 @@ def _socket_server(
                     subroot_path = None
                     
                     # Get filepath with subdir
+                    zouip_folder = get_config_datas()["zouip_folder"]
+                    
                     if subdir!=".":
                         # Get filepath with subdir
                         filepath = os.path.join(
@@ -218,8 +246,5 @@ def _socket_server(
 
 print("Starting zouip receiver")
 _socket_server(
-    config_datas["receiver"]["receive_port"],
-    config_datas["receiver"]["passphrase"],
-    config_datas["zouip_folder"],
-    config_datas["receiver"]["size_limit"],
+    config_datas["receive_port"],
 )

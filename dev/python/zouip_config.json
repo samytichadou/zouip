@@ -1,16 +1,42 @@
 {
     "zouip_folder": "/home/tonton/Téléchargements/zouip/",
-    "receiver": {
-        "receive_port": 12345,
-        "passphrase": "azerty",
-        "size_limit": 0,
-        "keep_files": 0,
-        "no_copy_to_clipboard": 0
-    },
-    "sender": {
-        "receiver_ids": [
-            ["192.168.1.12", "12345", "azerty", "1"],
-            ["192.168.1.36", "12345", "azerty", "0"]
-        ]
-    }
+    "receive_port": 12345,
+    "passphrase": "azerty",
+    "size_limit": 0,
+    "keep_files": 0,
+    "no_copy_to_clipboard": 0,
+    
+    "receive_from_list": [
+        {
+            "name": "FP4",
+            "address": "192.168.1.12",
+            "active": 1,
+            "clipboard_type": "both"
+        },
+        {
+            "name": "tonton-didier",
+            "address": "192.168.1.36",
+            "active": 1,
+            "clipboard_type": "both"
+        }
+    ],
+    
+    "send_to_list": [
+        {
+            "name": "FP4",
+            "address": "192.168.1.12",
+            "port": 12345,
+            "passphrase": "azerty",
+            "active": 1,
+            "clipboard_type": "text"
+        },
+        {
+            "name": "tonton-didier",
+            "address": "192.168.1.36",
+            "port": 12345,
+            "passphrase": "azerty",
+            "active": 0,
+            "clipboard_type": "both"
+        }
+    ]
 }

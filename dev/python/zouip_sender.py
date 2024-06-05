@@ -7,6 +7,8 @@ from gi.repository import GLib
 from dbus.mainloop.glib import DBusGMainLoop
 from urllib.parse import unquote
 
+# TODO Replace config variable by config read function
+# TODO Write text clipboard to file in the socket send after testing connection
 
 ### Get common path
 current_folder = os.path.dirname(os.path.realpath(__file__))
@@ -58,17 +60,18 @@ if config_datas is None:
     exit()
     
 print(config_datas)
+print()
 
 # Check for receivers
-receiver_ids = config_datas["sender"]["receiver_ids"]
+recipients = config_datas["send_to_list"]
 
 chk_active_receivers = False
-for r in receiver_ids:
-    if r[3]=="1":
-        print(f"Active receiver found : {r[0]} on port : {r[1]}, passphrase : {r[2]}")
+for r in recipients:
+    if r["active"]:
+        print(f'Active recipient found : {r["address"]} on port : {r["port"]}, passphrase : {r["passphrase"]}')
         chk_active_receivers = True
     else:
-        print(f"Inactive receiver found : {r[0]} on port : {r[1]}, passphrase : {r[2]}")
+        print(f'Inactive receiver found : {r["address"]} on port : {r["port"]}, passphrase : {r["passphrase"]}')
         
 if not chk_active_receivers:
     print("No active receiver found, aborting")
@@ -400,23 +403,33 @@ def clipboard_dbus_callback(bus, message):
         
         # Get clipboard content
         file_list, string_content = get_clipboard_content(message.get_args_list())
-
-        # Send for every receiver
+        
+        # Send for every recipient
         global old_content
         if file_list and string_content != old_content:
-            for receiver in config_datas["sender"]["receiver_ids"]:
-                
-                # Check if active receiver
-                if receiver[3] == "1":
+
+            for recipient in config_datas["send_to_list"]:
+
+                # Check clipboard type
+                first_filename = os.path.basename(file_list[0][0])
+                if (first_filename == "clipboard_content.txt"\
+                and recipient["clipboard_type"] == "file")\
+                or (first_filename != "clipboard_content.txt"\
+                and recipient["clipboard_type"] == "text"):
+                    print(f"Invalid clipboard type for {recipient['address']}, avoiding")
+                    continue
+
+                # Check if active recipient
+                if recipient["active"]:
 
                     request_string = build_file_request_string(
                         file_list,
-                        receiver[2],
+                        recipient["passphrase"],
                     )
                     
                     _socket_send(
-                        receiver[0],
-                        receiver[1],
+                        recipient["address"],
+                        recipient["port"],
                         request_string,
                     )
         else:
@@ -447,21 +460,21 @@ clipboard_sender_main()
 #     phone_number = number.get()
 #     sms_content = content.get()
 #     
-#     for receiver in config_datas["sender"]["receiver_ids"]:
+#     for recipient in config_datas["send_to_list"]:
 #                     
-#         # Check if active receiver
-#         if receiver[3] == "1":
+#         # Check if active recipient
+#         if recipient["active"]:
 # 
 #             request_string = build_command_request_string(
 #                 f'/usr/share/ofono/scripts/send-sms /ril_0 {phone_number} "{sms_content}" 0',
-#                 receiver[2],
+#                 recipient["passphrase"],
 #             )
 #             
 #             # print(request_string)
 # 
 #             _socket_send(
-#                 receiver[0],
-#                 receiver[1],
+#                 recipient["address"],
+#                 recipient["port"],
 #                 request_string,
 #             )
 
