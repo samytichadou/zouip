@@ -81,13 +81,49 @@ class Zouip_main_window(tk.Frame):
         Zouip_send_to_settings_parent(self.send_settings_window)
         print("Opening send to settings window")
     
+    def on_receive_button_toggle(self): #TODO
+        if self.receive_toggle_variable.get():
+            print("receive is on")
+        else:
+            print("receive is off")
+            
+    def on_send_button_toggle(self): #TODO
+        if self.send_toggle_variable.get():
+            print("send is on")
+        else:
+            print("send is off")
+    
+    def refresh_window(self):
+        # Get previous state
+        receive = self.receive_toggle_variable.get()
+        send = self.send_toggle_variable.get()
+        
+        # Refresh
+        self.destroy()
+        self.__init__(self.parent)
+        
+        # Set state from previous
+        self.receive_toggle_variable.set(receive)
+        self.send_toggle_variable.set(send)
+        
+        print("Window refreshed")
+        
     def __init__(self, parent, *args, **kwargs):
         tk.Frame.__init__(self, parent, *args, **kwargs)
         self.parent = parent
+        
+        # Set setting windows variables
         self.main_settings_window = None
         self.receive_settings_window = None
         self.send_settings_window = None
         
+        # Set variables
+        self.receive_toggle_variable = tk.IntVar()
+        self.send_toggle_variable = tk.IntVar()
+        
+        # Refresh settings
+        self.datas = get_config_datas()
+
         # Set geometry
         parent.geometry("500x300")
         parent.resizable(True, True)
@@ -123,6 +159,57 @@ class Zouip_main_window(tk.Frame):
         ).grid(row=row, column=2, sticky="e")
 
         row += 1
+        
+        # Separator
+        tk.Label(text="").grid(row=row)#, column=2, sticky="e")
+        row += 1
+        
+        ### Zouip state
+        state_label = tk.Label(
+            parent,
+            text="Zouip State",
+        ).grid(row=row, column=0, sticky="w")
+
+        # Receive toggle
+        receive_toggle_button = tk.Checkbutton(
+            parent,
+            text="Receive",
+            variable=self.receive_toggle_variable,
+            command=self.on_receive_button_toggle,
+        ).grid(row=row, column=1, sticky="e")
+
+        # Send toggle
+        send_toggle_button = tk.Checkbutton(
+            parent,
+            text="Send",
+            variable=self.send_toggle_variable,
+            command=self.on_send_button_toggle,
+        ).grid(row=row, column=2, sticky="e")
+        row += 1
+        
+        # Separator
+        tk.Label(text="").grid(row=row)#, column=2, sticky="e")
+        row += 1
+        
+        # Refresh Window
+        refresh_settings_button = tk.Button(
+            parent,
+            text="Refresh",
+            command=self.refresh_window,
+        ).grid(row=row, column=0, sticky="we", columnspan=3)
+        row += 1
+        
+        ### Send to list
+        for item in self.datas['send_to_list']:
+            tk.Label(
+                parent,
+                text=item["name"],
+            ).grid(row=row, column=0, sticky="we", columnspan=3)
+            
+            # TODO Activate/Deactivate toggle
+            # TODO Send command
+            
+            row += 1
 
 
 class Zouip_main_settings_parent(tk.Frame):
