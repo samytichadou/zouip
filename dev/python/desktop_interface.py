@@ -1,14 +1,105 @@
 import tkinter as tk
 from tkinter import filedialog, Toplevel
 
+import functools
 import json
 import os
+import subprocess
+import shutil
 
-def get_zouip_config_file():
+# TODO Properly close receiver to free port
+# TODO Check for installed services
+
+def get_zouip_folder():
     home_folder = os.environ['HOME']
     config_folder = os.path.join(home_folder, ".config")
-    zouip_config_folder = os.path.join(config_folder, "zouip")
+    zouip_folder =  os.path.join(config_folder, "zouip")
+    os.makedirs(zouip_folder, exist_ok=True)
+    return zouip_folder
+
+def get_systemd_folder():
+    home_folder = os.environ['HOME']
+    config_folder = os.path.join(home_folder, ".config")
+    systemd_folder = os.path.join(config_folder, "systemd")
+    systemd_user_folder = os.path.join(systemd_folder, "user")
+    os.makedirs(systemd_user_folder, exist_ok=True)
+    return systemd_user_folder
+    
+def get_zouip_config_file():
+    zouip_config_folder = get_zouip_folder()
     return os.path.join(zouip_config_folder,"zouip_config.json")
+
+def create_service_file(
+    filepath,
+    execpath,
+):
+    lines = []
+    lines.append("[Unit]")
+    lines.append("Description=zouip")
+    lines.append("[Service]")
+    lines.append(f"ExecStart=python3 {execpath}")
+    lines.append("[Install]")
+    lines.append("WantedBy=default.target")
+    
+    # Open the file in write mode
+    with open(filepath, 'w') as file:
+        for line in lines:
+            file.write(f"{line}\n")
+        
+    print(f"File '{filepath}' created")
+
+def install_services():
+    
+    # Get folders
+    print("Getting install folders")
+    current_folder = os.path.dirname(os.path.realpath(__file__))
+    res_folder = os.path.join(current_folder, "resources")
+    config_folder = get_zouip_folder()
+    systemd_folder = get_systemd_folder()
+    
+    # Copy files
+    print("Copying files")
+    sender = os.path.join(res_folder, "zouip_sender.py")
+    receiver = os.path.join(res_folder, "zouip_receiver.py")
+    sender_dst = shutil.copy(sender, config_folder)
+    receiver_dst = shutil.copy(receiver, config_folder)
+    
+    # Create service files
+    print("Creating service files")
+    create_service_file(
+        os.path.join(systemd_folder, "zouip_sender.service"),
+        sender_dst,
+    )
+    create_service_file(
+        os.path.join(systemd_folder, "zouip_receiver.service"),
+        receiver_dst,
+    )
+    
+    # Reload services
+    print("Reloading services")
+    os.system("systemctl --user daemon-reload")
+    
+    print("Services installed")
+
+def start_service(service):
+    print("Starting service")
+
+    if service == "sender":
+        cmd = "systemctl --user start zouip_sender.service"
+    else:
+        cmd = "systemctl --user start zouip_receiver.service"
+        
+    os.system(cmd)
+
+def stop_service(service):
+    print("Stopping service")
+    
+    if service == "sender":
+        cmd = "systemctl --user stop zouip_sender.service"
+    else:
+        cmd = "systemctl --user stop zouip_receiver.service"
+        
+    os.system(cmd)
 
 def get_config_datas():
     zouip_config_file = get_zouip_config_file()
@@ -44,6 +135,19 @@ def save_json(filepath, datas):
 
 
 class Zouip_main_window(tk.Frame):
+    
+    def toggle_entry_activate(self, index):
+        # Activate
+        item = self.datas['send_to_list'][index]
+        item['active'] = int(not item['active'])
+        print(f"{item['name']} active status : {item['active']}")
+        
+        # Saving config
+        save_json(get_zouip_config_file(), self.datas)
+        print("Settings saved")
+        
+        # Refresh Window
+        self.refresh_window()
     
     def open_main_settings(self):
         if self.main_settings_window is not None:
@@ -82,22 +186,56 @@ class Zouip_main_window(tk.Frame):
         print("Opening send to settings window")
     
     def on_receive_button_toggle(self): #TODO
+        
+        # Toggle ON
         if self.receive_toggle_variable.get():
-            print("receive is on")
+            
+            # Install services if needed
+            if not self.installed_services:
+                install_services()
+            
+            # Start service
+            start_service("receiver")
+            
+            print("Receiver is ON")
+        
+        # Toggle OFF
         else:
-            print("receive is off")
+            
+            # Stop service
+            stop_service("receiver")
+            
+            print("Receiver is OFF")
             
     def on_send_button_toggle(self): #TODO
+        
+        # Toggle ON
         if self.send_toggle_variable.get():
-            print("send is on")
+            
+            # Install services if needed
+            if not self.installed_services:
+                install_services()
+            
+            # Start service
+            start_service("sender")
+            
+            print("Sender is ON")
+        
+        # Toggle OFF
         else:
-            print("send is off")
-    
+            
+            # Stop service
+            stop_service("sender")
+            
+            print("Sender is OFF")
+            
     def refresh_window(self):
         # Get previous state
+        width = self.parent.winfo_width()
+        height = self.parent.winfo_height()
         receive = self.receive_toggle_variable.get()
         send = self.send_toggle_variable.get()
-        
+
         # Refresh
         self.destroy()
         self.__init__(self.parent)
@@ -105,8 +243,12 @@ class Zouip_main_window(tk.Frame):
         # Set state from previous
         self.receive_toggle_variable.set(receive)
         self.send_toggle_variable.set(send)
+        self.parent.geometry(f"{width}x{height}")
         
         print("Window refreshed")
+        
+    def get_install_service_state(self):
+        return False
         
     def __init__(self, parent, *args, **kwargs):
         tk.Frame.__init__(self, parent, *args, **kwargs)
@@ -123,9 +265,10 @@ class Zouip_main_window(tk.Frame):
         
         # Refresh settings
         self.datas = get_config_datas()
+        self.installed_services = self.get_install_service_state()
 
         # Set geometry
-        parent.geometry("500x300")
+        # parent.geometry("500x300")
         parent.resizable(True, True)
         parent.title("Zouip")
 
@@ -140,11 +283,23 @@ class Zouip_main_window(tk.Frame):
 
         row = 0
         
+        # TODO Open zouip folder
+        
+        # TODO Existing config state
+        
+        # TODO Remove config button
+        
+        # TODO Installed service state
+        
+        # TODO Uninstalled service button
+        
+        # TODO Get current receiver sender state
+        
         # Main settings
         settings_button = tk.Button(
             text="Main Settings",
             command=self.open_main_settings,
-        ).grid(row=row, column=0, sticky="w")
+        ).grid(row=row, column=0, sticky="we")
         
         # Receive from settings
         receive_from_settings_button = tk.Button(
@@ -156,7 +311,7 @@ class Zouip_main_window(tk.Frame):
         send_to_settings_button = tk.Button(
             text="Send to Settings",
             command=self.open_send_to_settings,
-        ).grid(row=row, column=2, sticky="e")
+        ).grid(row=row, column=2, sticky="we")
 
         row += 1
         
@@ -168,7 +323,7 @@ class Zouip_main_window(tk.Frame):
         state_label = tk.Label(
             parent,
             text="Zouip State",
-        ).grid(row=row, column=0, sticky="w")
+        ).grid(row=row, column=0, sticky="we")
 
         # Receive toggle
         receive_toggle_button = tk.Checkbutton(
@@ -176,7 +331,7 @@ class Zouip_main_window(tk.Frame):
             text="Receive",
             variable=self.receive_toggle_variable,
             command=self.on_receive_button_toggle,
-        ).grid(row=row, column=1, sticky="e")
+        ).grid(row=row, column=1, sticky="we")
 
         # Send toggle
         send_toggle_button = tk.Checkbutton(
@@ -184,7 +339,7 @@ class Zouip_main_window(tk.Frame):
             text="Send",
             variable=self.send_toggle_variable,
             command=self.on_send_button_toggle,
-        ).grid(row=row, column=2, sticky="e")
+        ).grid(row=row, column=2, sticky="we")
         row += 1
         
         # Separator
@@ -200,15 +355,32 @@ class Zouip_main_window(tk.Frame):
         row += 1
         
         ### Send to list
+        index = 0
         for item in self.datas['send_to_list']:
-            tk.Label(
-                parent,
-                text=item["name"],
-            ).grid(row=row, column=0, sticky="we", columnspan=3)
             
-            # TODO Activate/Deactivate toggle
+            # Get state
+            active = item["active"]
+            if active:
+                name = f'[X] {item["name"]}'
+                bg = "#7FBB5B"
+            else:
+                name = f'[_] {item["name"]}'
+                bg = "#E3563C"
+                
+            # Name - Activate toggle
+            tk.Button(
+                parent,
+                text=name,
+                command=functools.partial(self.toggle_entry_activate,index),
+                bg=bg,
+                anchor="w",
+            ).grid(row=row, column=0, sticky="we")
+            
             # TODO Send command
             
+            # TODO Get notifications
+            
+            index += 1
             row += 1
 
 

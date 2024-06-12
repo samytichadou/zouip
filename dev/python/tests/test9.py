@@ -1,11 +1,7 @@
-import tkinter as tk
-from tkinter import messagebox
+import subprocess
 
-# Create the main window
-window = tk.Tk()
+print("Starting service")
 
-# Show an error message box
-messagebox.showerror("Error", "This is an error message.")
-
-# Run the application
-window.mainloop()
+cmd = "systemctl --user start zouip_sender.service"
+    
+subprocess.call(cmd, shell = True)

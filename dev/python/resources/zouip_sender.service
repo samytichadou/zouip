@@ -1,0 +1,8 @@
+[Unit]
+Description=zouip
+
+[Service]
+ExecStart=python3
+
+[Install]
+WantedBy=default.target

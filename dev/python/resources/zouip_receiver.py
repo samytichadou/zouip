@@ -240,6 +240,8 @@ def _socket_server(
             # print(f"INPUT: {sender_request}")
             
             print(f"Closing connection with {addr}")
+            
+            c.close()
 
             break
 
