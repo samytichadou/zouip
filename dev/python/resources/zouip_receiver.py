@@ -76,9 +76,12 @@ def _socket_server(
     
     # Get socket
     s = socket.socket()
+    # Set socket reuse (to prevent timeout if closed before)
+    s.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     s.bind(('', port))
     
     while True:
+        
         s.listen(5)
         c, addr = s.accept()
         
@@ -89,7 +92,15 @@ def _socket_server(
             
             # Get request from sender
             sender_request = c.recv(8192).decode()
-            print(sender_request)
+            print(f"Request : {sender_request}")
+            
+            # Close command
+            if sender_request == "close":
+                print("Close request, quitting")
+                c.close()
+                s.shutdown(socket.SHUT_RDWR)
+                s.close()
+                exit()
             
             # Check if valid receiver
             valid_sender = None
@@ -220,8 +231,8 @@ def _socket_server(
                     print(f"Received : {filepath}")
                     filetodown.close()
                                             
-                    # Close connection
-                    c.close()
+                # Close connection
+                c.close()
             
             ### Command request
             elif sender_request.split(";;")[1] == "command":

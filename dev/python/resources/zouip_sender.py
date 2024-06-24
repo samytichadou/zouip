@@ -7,20 +7,18 @@ from gi.repository import GLib
 from dbus.mainloop.glib import DBusGMainLoop
 from urllib.parse import unquote
 
-# TODO Replace config variable by config read function
 # TODO Write text clipboard to file in the socket send after testing connection
 
 ### Get common path
 current_folder = os.path.dirname(os.path.realpath(__file__))
 config_filepath = os.path.join(current_folder, "zouip_config.json")
 
-def read_json(filepath):
-    if not os.path.isfile(filepath):
+def get_config_datas():
+    if not os.path.isfile(config_filepath):
         return None
-    with open(filepath, "r") as read_file:
+    with open(config_filepath, "r") as read_file:
         dataset = json.load(read_file)
     return dataset
-
 
 ##### INIT #####
 
@@ -53,7 +51,7 @@ else:
 
 ### Get configuration
 print("Reading configuration file")
-config_datas = read_json(config_filepath)
+config_datas = get_config_datas()
 
 if config_datas is None:
     print("No configuration file, aborting")
@@ -199,7 +197,7 @@ def get_clipboard_content(args_list):
                     )
     if file_list:
         print(f"File content : {formatted_file_list}")
-        
+
     return formatted_file_list, string_content
 
 
@@ -207,7 +205,9 @@ def write_text_to_temp_file(
     text,
 ):
     
-    filepath = os.path.join(config_datas["zouip_folder"], "clipboard_content.txt")
+    filepath = os.path.join(
+        get_config_datas()["zouip_folder"],
+        "clipboard_content.txt")
     
     print(f"Writing text content to temporary filepath : {filepath}")
         
@@ -230,7 +230,6 @@ def _socket_send(
     port,
     request,
 ):
-
     # Check if request is not too long (>8192)
     if len(request) > 8192:
         print("Request too long (too many files), aborting")
@@ -239,13 +238,13 @@ def _socket_send(
     # Connect to server
     s = socket.socket()
     try:
+        # TODO Timeout (firewall for example)
         s.connect((host,int(port)))
     except ConnectionRefusedError:
         print(f"Unable to connect to {host}-{port}, aborting")
         return False
     
-    # Send server request
-    print(f"Sending request to {host}-{port} - {request}")
+    # Send server request print(f"Sending request to {host}-{port} - {request}")
     s.send(request.encode())
     
     # s.sendfile(request.encode())
@@ -254,7 +253,7 @@ def _socket_send(
     answer = s.recv(1024).decode()
     
     # Check answer
-
+    
     # Command executed
     if answer == "Executed":
         print(f"Command executed by {host}-{port}")
@@ -323,7 +322,7 @@ def _socket_send(
             break
         
         s.close()
-                    
+
     # Close connection
     print(f"Closing connection with {host}-{port}")
     
@@ -407,9 +406,9 @@ def clipboard_dbus_callback(bus, message):
         # Send for every recipient
         global old_content
         if file_list and string_content != old_content:
-
-            for recipient in config_datas["send_to_list"]:
-
+            
+            for recipient in get_config_datas()["send_to_list"]:
+                
                 # Check clipboard type
                 first_filename = os.path.basename(file_list[0][0])
                 if (first_filename == "clipboard_content.txt"\
@@ -426,15 +425,16 @@ def clipboard_dbus_callback(bus, message):
                         file_list,
                         recipient["passphrase"],
                     )
-                    
+
                     _socket_send(
                         recipient["address"],
                         recipient["port"],
                         request_string,
                     )
+                    
         else:
             print("Invalid clipboard, avoiding")            
-                
+        
         old_content = string_content
 
 def clipboard_sender_main():

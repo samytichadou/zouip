@@ -2,12 +2,12 @@ import tkinter as tk
 from tkinter import filedialog, Toplevel
 
 import functools
+import socket
 import json
 import os
 import subprocess
 import shutil
 
-# TODO Properly close receiver to free port
 # TODO Check for installed services
 
 def get_zouip_folder():
@@ -100,6 +100,30 @@ def stop_service(service):
         cmd = "systemctl --user stop zouip_receiver.service"
         
     os.system(cmd)
+    
+def close_receiver(port):
+    print("Trying to close receiver")
+    
+    # Connect to server
+    s = socket.socket()
+    try:
+        s.connect(("0.0.0.0",int(port)))
+    except ConnectionRefusedError:
+        print(f"Unable to connect to port {port}, aborting")
+        return False
+    
+    # Close request
+    request = "close"
+    
+    # Send server request print(f"Sending request to {host}-{port} - {request}")
+    print(f"Sending close request on port {port}")
+    s.send(request.encode())
+    
+    # Close connection
+    s.close()
+    print(f"Closing receiver on port {port}")
+    
+    return True
 
 def get_config_datas():
     zouip_config_file = get_zouip_config_file()
@@ -202,6 +226,9 @@ class Zouip_main_window(tk.Frame):
         # Toggle OFF
         else:
             
+            # Close receiver
+            close_receiver(self.datas["receive_port"])
+            
             # Stop service
             stop_service("receiver")
             
@@ -248,6 +275,7 @@ class Zouip_main_window(tk.Frame):
         print("Window refreshed")
         
     def get_install_service_state(self):
+        # TODO Check if service installed
         return False
         
     def __init__(self, parent, *args, **kwargs):
@@ -362,17 +390,22 @@ class Zouip_main_window(tk.Frame):
             active = item["active"]
             if active:
                 name = f'[X] {item["name"]}'
-                bg = "#7FBB5B"
+                color = "#7FBB5B"
+                color2 = "#CBFFCB"
             else:
                 name = f'[_] {item["name"]}'
-                bg = "#E3563C"
+                color = "#E3563C"
+                color2 = "#FF9865"
                 
             # Name - Activate toggle
             tk.Button(
                 parent,
                 text=name,
                 command=functools.partial(self.toggle_entry_activate,index),
-                bg=bg,
+                bg=color,
+                # fg=color,
+                activebackground=color2,
+                # activeforeground=color,
                 anchor="w",
             ).grid(row=row, column=0, sticky="we")
             
